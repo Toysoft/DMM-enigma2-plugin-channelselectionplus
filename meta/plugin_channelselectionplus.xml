@@ -1,0 +1,16 @@
+<default>
+  <prerequisites>
+    <tag type="EPG" />
+  </prerequisites>
+  <info>
+    <author>Sven H</author>
+    <name>ChannelSelectionPlus</name>
+    <packagename>enigma2-plugin-extensions-channelselectionplus</packagename>
+    <shortdescription>Channel Selection with improved layout options</shortdescription>
+    <description>ChannelSelectionPlus allows users skinners to fully control almost every aspect of the channel list.</description>
+  </info>
+
+  <files type="package">
+    <file type="package" name="enigma2-plugin-extensions-channelselectionplus" />
+  </files>
+</default>
