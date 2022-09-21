@@ -5,4 +5,5 @@ plugin_PYTHON = \
 	plugin.py
 
 plugin_DATA = \
-	maintainer.info
+	maintainer.info \
+	LICENSE

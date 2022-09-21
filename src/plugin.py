@@ -1,5 +1,8 @@
 # -*- coding: utf-8 -*-
-
+"""
+This Plugin was created  and is shipped under the copyright of the author:
+  Sven H
+"""
 from Plugins.Plugin import PluginDescriptor
 from Screens.Screen import Screen
 from Screens.MessageBox import MessageBox
