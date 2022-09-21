@@ -1,5 +1,8 @@
 # Changelog ChannelSelection Plus
 
+#### 30.07.2022 - Version 0.1.0-r3:
+- fix für fehlerhafte ProgressBarPixmap-Breite in der Standard-Ansicht nach Ansichtwechsel
+
 #### 20.02.2022 - Version 0.1.0-r2:
 - fix für fehlerhaftes backgroundPixmap in der Standard-Ansicht
 - fix für falsche Setup-Optionen-Ansicht nach Wechsel der Kanallisten-Ansicht in der Vorschau
