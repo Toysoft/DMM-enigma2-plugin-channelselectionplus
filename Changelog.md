@@ -1,5 +1,12 @@
 # Changelog ChannelSelection Plus
 
+#### 17.10.2022 - Version 0.1.0-r4:
+- fix für fehlerhafte Anzeige nach Ansichtwechsel im ValisEPG
+- Kanalnummern-Anzeige-Setup-Option greift jetzt auch bei den Template-Kanalnamen-Texten (text=1, text=36, text=41)
+- neue Setup-Option für das Verhalten der Info-Taste im TV-Modus (Einfach-EPG oder EventView)
+- neue Setup-Option "Zeige DVB-Icons" (Icon ist in Templates unabhängig von dieser Option immer über png=3 verfügbar)
+- es wird jetzt auch das Streaming-Icon aus dem Skin (ico_streaming-fs8.png) für die DVB-Icons unterstützt
+
 #### 30.07.2022 - Version 0.1.0-r3:
 - fix für fehlerhafte ProgressBarPixmap-Breite in der Standard-Ansicht nach Ansichtwechsel
 

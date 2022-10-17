@@ -7,6 +7,8 @@ from Plugins.Plugin import PluginDescriptor
 from Screens.Screen import Screen
 from Screens.MessageBox import MessageBox
 from Screens.ChannelSelection import ChannelSelection
+from Screens.InfoBar import InfoBar
+from ServiceReference import ServiceReference
 from Components.ActionMap import ActionMap, HelpableActionMap
 from Components.ConfigList import ConfigListScreen
 from Components.config import config, getConfigListEntry, ConfigSelection, ConfigYesNo, ConfigInteger, ConfigText
@@ -36,7 +38,7 @@ except:
 
 sz_w = getDesktop(0).size().width()
 
-VERSION = "0.1.0-r3"
+VERSION = "0.1.0-r4"
 
 #language-support
 lang = language.getLanguage()
@@ -47,12 +49,12 @@ gettext.bindtextdomain("enigma2-plugins", resolveFilename(SCOPE_LANGUAGE))
 gettext.bindtextdomain("ChannelSelectionPlus", "%s%s" % (resolveFilename(SCOPE_PLUGINS), "Extensions/ChannelSelectionPlus/locale"))
 
 def _(txt):
-    t = gettext.dgettext("ChannelSelectionPlus", txt)
-    if t == txt:
-        t = gettext.gettext(txt)
-    if t == txt:
-        t = gettext.dgettext("enigma2-plugins", txt)
-    return t
+	t = gettext.dgettext("ChannelSelectionPlus", txt)
+	if t == txt:
+		t = gettext.gettext(txt)
+	if t == txt:
+		t = gettext.dgettext("enigma2-plugins", txt)
+	return t
 
 #new config for channelselection
 config.usage.configselection_listnumbersposition = ConfigSelection(default = "0", choices = [("0",_("ahead")),("1",_("together with servicename"))])
@@ -60,17 +62,18 @@ config.usage.configselection_listnumberformat = ConfigSelection(default = "%d", 
 config.usage.configselection_showeventnameunderservicename = ConfigYesNo(default=False)
 config.usage.configselection_servicenamecolwidth_percent = ConfigInteger(40, limits =(0,100))
 config.usage.configselection_ok_key = ConfigSelection(default = "normal", choices = [("normal",_("normal (zap+close)")),("zaponly",_("1. zap, 2. close"))])
+config.usage.configselection_info_key = ConfigSelection(default = "simpleepg", choices = [("simpleepg",_("Single EPG") + " (" + _("default") + ")"),("eventview",_("EventView"))])
 config.usage.configselection_style = ConfigText(default = "default", fixed_size = False)
 config.usage.configselection_select_last_service = ConfigYesNo(default=False)
-
+config.usage.configselection_showdvbicons = ConfigYesNo(default=False)
 
 #check for Merlin-Image
 global isMerlin 
 isMerlin = False
 
 try:
- from Components.Merlin import MerlinImage
- isMerlin = True
+	from Components.Merlin import MerlinImage
+	isMerlin = True
 except: pass
 
 if os_path.exists("/usr/lib/enigma2/python/Plugins/Extensions/EPGSearch/EPGSearch.py"):
@@ -82,7 +85,7 @@ if os_path.exists("/usr/lib/enigma2/python/Plugins/Extensions/EPGSearch/EPGSearc
 	baseEPGSelection__init__ = EPGSelection.__init__
 
 	def EPGSelection__init__(self, session, service, zapFunc=None, eventid=None, bouquetChangeCB=None, serviceChangeCB=None):
-		#print("=== CSP EPGSelection_ori__init__", baseEPGSelection__init__.__module__)
+		#print("[CSP] EPGSelection_ori__init__", baseEPGSelection__init__.__module__)
 		baseEPGSelection__init__(self, session, service, zapFunc, eventid, bouquetChangeCB, serviceChangeCB)
 
 		def bluePressed():
@@ -98,7 +101,7 @@ if os_path.exists("/usr/lib/enigma2/python/Plugins/Extensions/EPGSearch/EPGSearc
 					"audioSelection": bluePressed,
 				})
 	
-	#print("=== CSP overwrite EPGSelection.__init__")
+	#print("[CSP] overwrite EPGSelection.__init__")
 	EPGSelection.__init__ = EPGSelection__init__
 
 	# Overwrite EventViewBase.__init__ 
@@ -117,13 +120,51 @@ if os_path.exists("/usr/lib/enigma2/python/Plugins/Extensions/EPGSearch/EPGSearc
 			})
 	EventViewBase.__init__ = EventViewBase__init__
 
+#change style on ChannelSelection_execBegin if style changed for example in ValisEPG-Plugin
+ChannelSelection_execBegin_ori = None
+from Screens.ChannelSelection import ChannelSelection
+ChannelSelection_execBegin_ori = ChannelSelection._ChannelSelection__execBegin
+
+def ChannelSelection_execBegin(self):
+	ChannelSelection_execBegin_ori(self)
+	print("[CSP] own ChannelSelection_execBegin style: %s, %s" % (self.servicelist.active_style, config.usage.configselection_style.value))
+	if self.servicelist.active_style != config.usage.configselection_style.value:
+		print("[CSP] own ChannelSelection_execBegin change_style")
+		self.servicelist.setServiceListTemplate(self.servicelist.root)
+		self.servicelist.setList(self.servicelist._list)
+	self.servicelist.setDVBIcons()
+
+ChannelSelection._ChannelSelection__execBegin = ChannelSelection_execBegin
+
+ChannelSelectionEPG_showEPGList_ori = None
+from Screens.ChannelSelection import ChannelSelectionEPG
+ChannelSelectionEPG_showEPGList_ori = ChannelSelectionEPG.showEPGList
+
+def ChannelSelectionEPG_showEPGList(self):
+	if config.usage.configselection_info_key.value == "simpleepg" or not "ServiceEvent" in self:
+		ChannelSelectionEPG_showEPGList_ori(self)
+	else:
+		ref=self.getCurrentSelection()
+		event = self["ServiceEvent"].getCurrentEvent()
+		service = self["ServiceEvent"].getCurrentService()
+		if ref and event:
+
+			def openSingleServiceEPG():
+				self.session.openWithCallback(self.SingleServiceEPGClosed, EPGSelection, ref, serviceChangeCB = self.changeServiceCB)
+
+			self.savedService = ref
+			from Screens.EventView import EventViewEPGSelect
+			self.session.open(EventViewEPGSelect, event, ServiceReference(ref), None, openSingleServiceEPG, InfoBar.instance.openMultiServiceEPG, InfoBar.instance.openSimilarList)
+
+ChannelSelectionEPG.showEPGList = ChannelSelectionEPG_showEPGList
+
 ChannelSelectionBase_ori = None
 from Screens.ChannelSelection import ChannelSelectionBase
 ChannelSelectionBase_ori = ChannelSelectionBase.__init__
 
 #overwrite ChannelSelectionBase from ChannelSelection
 def ChannelSelectionBase__init__(self, session):
-		#print("=== ChannelSelectionPlus ChannelSelectionBase__init__")
+		print("[CSP] ChannelSelectionPlus ChannelSelectionBase__init__ Screen: %s" % self.__class__.__name__)
 		ChannelSelectionBase_ori(self, session)
 
 		#don't use Templates in SimpleChannelSelection or Radio-Screens, which use ChannelSelectionBase
@@ -139,6 +180,7 @@ def ChannelSelectionBase__init__(self, session):
 		else:
 			self["list"] = ServiceListOwn(session, useTemplates=False)
 			self.servicelist = self["list"]
+			self.servicelist.setDVBIcons()
 		
 		#set Audio-Key to search with EPGSearch
 		if os_path.exists("/usr/lib/enigma2/python/Plugins/Extensions/EPGSearch/EPGSearch.py"):
@@ -172,12 +214,12 @@ def ChannelSelectionBase__init__(self, session):
 ChannelSelectionBase.__init__ = ChannelSelectionBase__init__
 
 def ChannelSelectionBase_nextTemplate(self):
-	#print("=== ChannelSelectionBase_nextTemplate")
+	#print("[CSP] ChannelSelectionBase_nextTemplate")
 	ChannelSelectionBase_handleKey(self, KEY_RIGHT)
 	pass
 	
 def ChannelSelectionBase_previousTemplate(self):
-	#print("=== ChannelSelectionBase_previousTemplate")
+	#print("[CSP] ChannelSelectionBase_previousTemplate")
 	ChannelSelectionBase_handleKey(self, KEY_LEFT)
 	pass
 
@@ -187,7 +229,7 @@ def ChannelSelectionBase_handleKey(self, KEY_VALUE):
 	self.servicelist.setList(self.servicelist._list)
 
 def ChannelSelectionBase_createConfigSelection_style(self):
-	#print("=== ChannelSelectionBase_createConfigSelection_style")
+	#print("[CSP] ChannelSelectionBase_createConfigSelection_style")
 	if isinstance(config.usage.configselection_style,ConfigText):
 		#load template-config-options from templates
 		templates = ChannelSelectionBase_getServiceListTemplates(self)
@@ -215,7 +257,7 @@ def ChannelSelectionBase_getServiceListTemplates(self):
 #overwrite changeBouquet from ChannelSelectionBase
 ChannelSelectionBase_changeBouquet_ori = ChannelSelectionBase.changeBouquet
 def ChannelSelectionBase_changeBouquet(self, direction):
-	#print("=== own ChannelSelectionBase_changeBouquet")
+	#print("[CSP] own ChannelSelectionBase_changeBouquet")
 	ChannelSelectionBase_changeBouquet_ori(self, direction)
 	
 	#don't use in SimpleChannelSelection or Radio-Screens, which use ChannelSelectionBase
@@ -232,11 +274,11 @@ def ChannelSelectionBase_changeBouquet(self, direction):
 		#from ServiceReference import ServiceReference
 		breaking = False
 		for history_entry in history:
-			#print("=== history", history_entry[2].toString(), ServiceReference(history_entry[2]).getServiceName())
+			#print("[CSP] history", history_entry[2].toString(), ServiceReference(history_entry[2]).getServiceName())
 			if len(history_entry)>2:
 				for service in servicelist:
-					#print("=== history", history_entry)
-					#print("=== service, history, equal", service.ref, history_entry[2], service.ref == history_entry[2])
+					#print("[CSP] history", history_entry)
+					#print("[CSP] service, history, equal", service.ref, history_entry[2], service.ref == history_entry[2])
 					if service.ref == history_entry[2]:
 						self.setCurrentSelection(history_entry[2])
 						breaking = True
@@ -248,8 +290,8 @@ ChannelSelectionBase.changeBouquet = ChannelSelectionBase_changeBouquet
 
 #overwrite channelSelected from ChannelSelection
 def ChannelSelection_channelSelected(self):
-	#print "=== close ChannelSelection"
-	#print("=== CSP ChannelSelection_channelSelected")
+	#print "[CSP] close ChannelSelection"
+	#print("[CSP] ChannelSelection_channelSelected")
 	sel_serviceref = self.getCurrentSelection() #self.servicelist.getCurrent()
 	sel_refstr = sel_serviceref.toString()
 	
@@ -337,7 +379,7 @@ class ChannelSelectionDisplaySettings(Screen, ConfigListScreen):
 		self.showeventnameunderservicename.save()
 		
 		if reloadServiceList:
-			#print("=== set setServiceListTemplate after save")
+			#print("[CSP] set setServiceListTemplate after save")
 			from Screens.InfoBar import InfoBar
 			InfoBar.instance.servicelist.servicelist.setServiceListTemplate(InfoBar.instance.servicelist.servicelist.root)
 		self.close()
@@ -456,8 +498,8 @@ class ChannelSelectionDisplaySettings(Screen, ConfigListScreen):
 			self.showServiceNameEntry = None
 			self.showEventnameUnderServicenameEntry = getConfigListEntry(_("Show eventname below servicename"), self.showeventnameunderservicename)
 			self.list.append(self.showEventnameUnderServicenameEntry)
-		if isMerlin:
-			self.list.append(getConfigListEntry(_("Show DVB-icons"), config.usage.configselection_showdvbicons))
+		#if isMerlin:
+		self.list.append(getConfigListEntry(_("Show DVB-icons"), config.usage.configselection_showdvbicons))
 		self.showlistnumbersEntry = getConfigListEntry(_("Show service numbers"), self.showlistnumbers)
 		self.list.append(self.showlistnumbersEntry)
 		if self.showlistnumbers.value:
@@ -500,10 +542,13 @@ class ChannelSelectionDisplaySettings(Screen, ConfigListScreen):
 		else:
 			self.list = []
 			self.list.append(self.ListStyleEntry)
-			self.list.append(getConfigListEntry(_("service number format"), config.usage.configselection_listnumberformat))
+			self.list.append(self.showlistnumbersEntry)
+			if self.showlistnumbers.value:
+				self.list.append(getConfigListEntry(_("service number format"), config.usage.configselection_listnumberformat))
 		
 		self.list.append(getConfigListEntry(_("select last history-service on bouquet-change"), config.usage.configselection_select_last_service))
 		self.list.append(getConfigListEntry(_("behavior of the ok button"), config.usage.configselection_ok_key))
+		self.list.append(getConfigListEntry(_("behavior of the info button (tv mode)"), config.usage.configselection_info_key))
 
 		self[widget].list = self.list
 		self[widget].l.setList(self.list)
@@ -801,7 +846,7 @@ class ServiceListOwn(ServiceList,TemplatedMultiContentComponent):
 		}"""
 	
 	def __init__(self, session = None, useTemplates=True):
-		#print("=== ServiceListOwn__init__", useTemplates)
+		#print("[CSP] ServiceListOwn__init__", useTemplates)
 		self.useTemplates = useTemplates
 		TemplatedMultiContentComponent.__init__(self)
 		ServiceList.__init__(self, session)
@@ -810,6 +855,8 @@ class ServiceListOwn(ServiceList,TemplatedMultiContentComponent):
 		tlf = TemplatedListFonts()
 		self.serviceNumberFont = gFont(tlf.face(TemplatedListFonts.MEDIUM), tlf.size(TemplatedListFonts.MEDIUM))
 		config.usage.configselection_showeventnameunderservicename.addNotifier(self.setItemHeight, initial_call = False)
+		if not isMerlin:
+			config.usage.configselection_showdvbicons.addNotifier(self.setDVBIcons, initial_call = False)
 		
 		self.showPrimeTime = False  #for valisepg to show primtime in ServiceList
 		self.PrimeTime = None       #primetime-value for valisepg to show primtime in ServiceList
@@ -837,13 +884,13 @@ class ServiceListOwn(ServiceList,TemplatedMultiContentComponent):
 		self.picload = ePicLoad()
 
 	def setRoot(self, root, justSet=False):
-		#Log.i("=== %s" % justSet)
+		#Log.i("[CSP] %s" % justSet)
 		ServiceList.setRoot(self, root, justSet)
 		if self.useTemplates and config.usage.configselection_style.value != "default":
 			self.setServiceListTemplate(root)
 
 	def setServiceListTemplate(self, root):
-		#Log.i("===")
+		#Log.i("[CSP]")
 		setModeFavourites = False
 		
 		#check list-entries
@@ -867,13 +914,13 @@ class ServiceListOwn(ServiceList,TemplatedMultiContentComponent):
 			template = "default"
 		
 		if template == self.active_style:
-			#print("=== setServiceListTemplate - same template - no changes needed")
+			#print("[CSP] setServiceListTemplate - same template - no changes needed")
 			return
 		
 		#set own template-Values from template (like itemWidth, bgPixmap, selPixmap, scrollbarMode ...)
 		self.setServiceListTemplateValues(template)
 		
-		#print("=== template", template)
+		#print("[CSP] template", template)
 		#if template == "default":
 		if config.usage.configselection_style.value == "default":
 			self.l.setTemplate(None)
@@ -892,12 +939,12 @@ class ServiceListOwn(ServiceList,TemplatedMultiContentComponent):
 	def setServiceListTemplateValues(self, template=""):
 		
 		if not hasattr(self, "template") or not template:
-			#print("=== no template in self - leave function")
+			#print("[CSP] no template in self - leave function")
 			return
 		
 		#set own template-Values from template
 		templates = self.template.get("templates")
-		#print("=== templates", len(templates[template]), template, templates)
+		#print("[CSP] templates", len(templates[template]), template, templates)
 		if template != "default":
 			self.initContent() #set Templatefonts
 			if len(templates[template]) > 4: #use template-options
@@ -921,14 +968,14 @@ class ServiceListOwn(ServiceList,TemplatedMultiContentComponent):
 			bgPixmap = tpl.get("bgPixmap", None)
 			if useWidgetPixmaps and bgPixmap:
 				bgPixmap = self.getSkinAttribute(bgPixmap)
-			#print("=== set template bgPixmap", bgPixmap)
+			#print("[CSP] set template bgPixmap", bgPixmap)
 			if bgPixmap:
 				bgPixmap = LoadPixmap(resolveFilename(SCOPE_CURRENT_SKIN, bgPixmap),size=pixmapSize)
 			
 			selPixmap = tpl.get("selPixmap", None)
 			if useWidgetPixmaps and selPixmap:
 				selPixmap = self.getSkinAttribute(selPixmap)
-			#print("=== set template selPixmap", selPixmap)
+			#print("[CSP] set template selPixmap", selPixmap)
 			if selPixmap:
 				selPixmap = LoadPixmap(resolveFilename(SCOPE_CURRENT_SKIN, selPixmap), size=pixmapSize)
 			
@@ -961,41 +1008,43 @@ class ServiceListOwn(ServiceList,TemplatedMultiContentComponent):
 					self.picServiceEventProgressbar = pic
 			
 			#set default style fonts
-			#print("=== set org fonts")
+			#print("[CSP] set org fonts")
 			tlf = TemplatedListFonts()
 			self.l.setFont(0, self.orgFont0) # AdditionalInfoFont
 			self.l.setFont(1, self.orgFont1) # ServiceNumberFont
 			self.l.setFont(2, self.orgFont2) # ServiceNameFont
 			self.l.setFont(3, self.orgFont3) # ServiceInfoFont
 		
-		#print("=== bgPixmap", bgPixmap)
+		#print("[CSP] bgPixmap", bgPixmap)
 		if bgPixmap:
 			self.instance.setBackgroundPicture(bgPixmap)
 		else:
 			self.instance.setBackgroundPicture(gPixmapPtr())
-		#print("=== selPixmap", selPixmap)
+		#print("[CSP] selPixmap", selPixmap)
 		if selPixmap:
 			self.instance.setSelectionPicture(selPixmap)
 		else:
 			self.instance.setSelectionPicture(gPixmapPtr())
 		
-		#print("=== scrollbarMode, styleScrollbarMode", scrollbarMode, self.styleScrollbarMode)
+		#print("[CSP] scrollbarMode, styleScrollbarMode", scrollbarMode, self.styleScrollbarMode)
 		self.instance.setScrollbarMode(scrollbarMode)
-		#print("=== set template styleMode:", self.styleModeTemplate)
+		#print("[CSP] set template styleMode:", self.styleModeTemplate)
 		self.instance.setMode(self.styleModeTemplate)
-		#print("=== set template itemWidth", itemWidth)
+		#print("[CSP] set template itemWidth", itemWidth)
 		self.instance.setItemWidth(itemWidth)
 
+		self.setDVBIcons()
+
 	def moveUp(self):
-		#Log.i("===")
-		#print("=== mode, styleMode", self.mode, self.styleMode)
+		#Log.i("[CSP]")
+		#print("[CSP] mode, styleMode", self.mode, self.styleMode)
 		if self.styleModeTemplate != eListbox.layoutVertical:
 			self.instance.moveSelection(self.instance.moveLeft)
 		else:
 			self.instance.moveSelection(self.instance.moveUp)
 
 	def moveDown(self):
-		#Log.i("===")
+		#Log.i("[CSP]")
 		if self.styleModeTemplate != eListbox.layoutVertical:
 			self.instance.moveSelection(self.instance.moveRight)
 		else:
@@ -1003,21 +1052,35 @@ class ServiceListOwn(ServiceList,TemplatedMultiContentComponent):
 
 	def setItemHeight(self, configElement = None):
 		if self.useTemplates and config.usage.configselection_style.value != "default":
-			#print("=== ServiceListOwn setItemHeight ignore on useTemplates")
+			#print("[CSP] ServiceListOwn setItemHeight ignore on useTemplates")
 			return
 		if (config.usage.configselection_bigpicons.value or config.usage.configselection_secondlineinfo.value != "0" or config.usage.configselection_showeventnameunderservicename.value) and self.mode == self.MODE_FAVOURITES:
 			self.l.setItemHeight(self.itemHeightHigh)
-			#print("=== ServiceListOwn setItemHeightBig",self.itemHeightHigh)
+			#print("[CSP] ServiceListOwn setItemHeightBig",self.itemHeightHigh)
 			if self.instance is not None and self.selectionPixmapBig:
 				self.instance.setSelectionPicture(self.selectionPixmapBig)
 		else:
 			self.l.setItemHeight(self.itemHeight)
-			#print("=== ServiceListOwn setItemHeight",self.itemHeight)
+			#print("[CSP] ServiceListOwn setItemHeight",self.itemHeight)
 			if self.instance is not None and self.selectionPixmapStandard:
 				self.instance.setSelectionPicture(self.selectionPixmapStandard)
 
+	def setDVBIcons(self, ConfigElement=None):
+		if (config.usage.configselection_showdvbicons.value and (config.usage.configselection_style.value == "default" or not self.useTemplates)) or (config.usage.configselection_style.value != "default" and self.useTemplates):
+			print("[CSP] set DVBIcons on - style: %s, useTemplate: %s, config: %s" % (config.usage.configselection_style.value, self.useTemplates, config.usage.configselection_showdvbicons.value))
+			self.picDVB_S = LoadPixmap(resolveFilename(SCOPE_CURRENT_SKIN, "ico_dvb_s-fs8.png"))
+			self.picDVB_C = LoadPixmap(resolveFilename(SCOPE_CURRENT_SKIN, "ico_dvb_c-fs8.png"))
+			self.picDVB_T = LoadPixmap(resolveFilename(SCOPE_CURRENT_SKIN, "ico_dvb_t-fs8.png"))
+			self.picStreaming = LoadPixmap(resolveFilename(SCOPE_CURRENT_SKIN, "ico_streaming-fs8.png"))
+		else:
+			print("[CSP] set DVBIcons off - style: %s, useTemplate: %s, config: %s" % (config.usage.configselection_style.value, self.useTemplates, config.usage.configselection_showdvbicons.value))
+			self.picDVB_S = None
+			self.picDVB_C = None
+			self.picDVB_T = None
+			self.picStreaming = None
+
 	def _buildOptionEntryProgressBar(self, event, xoffset, width, height):
-		#Log.i("===")
+		#Log.i("[CSP]")
 		percent = 0
 		progressW = self._progressBarWidth()
 		progressH = self._componentSizes.get(self.KEY_PROGRESS_BAR_HEIGHT, 8)
@@ -1033,6 +1096,27 @@ class ServiceListOwn(ServiceList,TemplatedMultiContentComponent):
 			return(eListboxPythonMultiContent.TYPE_PROGRESS, xoffset, top, progressW, progressH, percent, 1, self.serviceEventProgressbarColor, self.serviceEventProgressbarColorSelected, self.serviceEventProgressbarBackColor, self.serviceEventProgressbarBackColorSelected)
 		else:
 			return(eListboxPythonMultiContent.TYPE_PROGRESS_PIXMAP, xoffset, top, progressW, progressH, percent, self.picServiceEventProgressbar, 1, self.serviceEventProgressbarBorderColor, self.serviceEventProgressbarBorderColorSelected, self.serviceEventProgressbarBackColor, self.serviceEventProgressbarBackColorSelected)
+
+	def _buildOptionEntryServicePixmap(self, service):
+		pixmap = None
+		if service.flags & eServiceReference.isMarker:
+			pixmap = self.picMarker
+		elif service.flags & eServiceReference.isGroup:
+			pixmap = self.picServiceGroup
+		elif service.flags & eServiceReference.isDirectory:
+			pixmap = self.picFolder
+		else:
+			if service.getPath():
+				pixmap = self.picStreaming
+			else:
+				orbpos = service.getUnsignedData(4) >> 16;
+				if orbpos == 0xFFFF:
+					pixmap = self.picDVB_C
+				elif orbpos == 0xEEEE:
+					pixmap = self.picDVB_T
+				else:
+					pixmap = self.picDVB_S
+		return pixmap
 
 	#own function for valisepg to show primtime
 	def getEventFromService(self, service):
@@ -1051,7 +1135,7 @@ class ServiceListOwn(ServiceList,TemplatedMultiContentComponent):
 		clock_type = 0
 		for x in self.session.nav.RecordTimer.timer_list:
 			if x.service_ref.ref.toString() == refstr:
-				#print "=== timer", x.name, x.service_ref.ref.toString(), x.eit, eventId
+				#print "[CSP] timer", x.name, x.service_ref.ref.toString(), x.eit, eventId
 				if x.eit == eventId:
 					if x.begin > int(time()): #timer in future
 						return 5, LoadPixmap(cached=True, path=resolveFilename(SCOPE_CURRENT_SKIN, 'skin_default/icons/epgclock.png'))
@@ -1086,12 +1170,12 @@ class ServiceListOwn(ServiceList,TemplatedMultiContentComponent):
 			else:
 				desc = ""
 			if desc and ext:
-				#print("===1 desc", ext)
+				#print("[CSP] getCleanExtDescription 1 desc", ext)
 				return "%s - %s" % (desc, ext)
 			elif desc:
 				return "%s" % (desc,)
 			else:
-				#print("===2 desc", ext)
+				#print("[CSP] getCleanExtDescription 2 desc", ext)
 				return "%s" % (ext,)
 	
 	def getProviderName(self, service):
@@ -1103,7 +1187,7 @@ class ServiceListOwn(ServiceList,TemplatedMultiContentComponent):
 		return provider
 	
 	def buildOptionEntry(self, service, **args):
-		#Log.i("===")
+		#Log.i("[CSP]")
 		width = self.l.getItemSize().width()
 		width -= self._componentSizes.get(self.KEY_END_MARGIN, 5)
 		height = self.l.getItemSize().height()
@@ -1143,7 +1227,7 @@ class ServiceListOwn(ServiceList,TemplatedMultiContentComponent):
 			if event:
 				ev = parseEvent(event)
 				timertyp, timerpng = self.getPrimeTimeClockPixmap(service.toString(), ev[0], ev[1], ev[4])
-				#print "=== timertyp, service", timertyp, service.toString(), ev[2]
+				#print "[CSP] timertyp, service", timertyp, service.toString(), ev[2]
 			if recording and timertyp != 2: recording = False #don't show current record on PrimeTime
 		
 		marked = 0
@@ -1197,7 +1281,10 @@ class ServiceListOwn(ServiceList,TemplatedMultiContentComponent):
 			markers_before = self.l.getNumMarkersBeforeCurrent()
 			servicenumberformat = config.usage.configselection_listnumberformat.value
 			servicenumber_text = servicenumberformat % (self.numberoffset + index + 1 - markers_before)
-			channelnumberServicename = servicenumber_text + " " + serviceName
+			if config.usage.configselection_showlistnumbers.value:
+				channelnumberServicename = servicenumber_text + " " + serviceName
+			else:
+				channelnumberServicename = serviceName
 			
 			#picon
 			picon = None
@@ -1357,11 +1444,11 @@ class ServiceListOwn(ServiceList,TemplatedMultiContentComponent):
 							pngname = resolveFilename(SCOPE_SKIN_IMAGE, "skin_default/picon_default.png")
 					picon = LoadPixmap(cached = True, path = pngname)
 				
-				serviceNameEventName = "%s (%s)" % (serviceName, eventName)
+				serviceNameEventName = "%s (%s)" % (channelnumberServicename, eventName)
 				
 				if not eventName:
-					eventName = _("no event data") + " (%s)" % serviceName
-					serviceNameEventName = "%s (%s)" % (serviceName, _("no event data"))
+					eventName = _("no event data") + " (%s)" % channelnumberServicename
+					serviceNameEventName = "%s (%s)" % (channelnumberServicename, _("no event data"))
 				if not eventName_shortdesc:
 					eventName_shortdesc = _("no event data")
 				if not eventName_fulldesc:
@@ -1370,9 +1457,9 @@ class ServiceListOwn(ServiceList,TemplatedMultiContentComponent):
 				if not eventImage:
 					eventImage = picon
 			
-			res.extend((serviceName, eventName, pixmap , picon, percent, self.serviceEventProgressbarColor, self.serviceEventProgressbarColorSelected, self.serviceEventProgressbarBackColor, self.serviceEventProgressbarBackColorSelected, forgroundColor, forgroundColorSel, backgroundColor, backgroundColorSel, additionalInfoColor, additionalInfoColorSelected, serviceDescriptionColor, serviceDescriptionColorSelected, servicenumber_text, addtimedisplay, eventName_shortdesc, nextEventTimeName, time_remaining, time_percent, marker_text, self.picServiceEventProgressbar, eventName_fulldesc, marker_icon, nextEventName, nextEventTime, nowEventTime, primetimeEventName, primetimeEventTime, moreNextEvents, primetimeEvents, self.stylePrimeTimeHeading, channelnumberServicename, picInBouquet, providerName, providerPicon, eventImage, serviceNameEventName, 750, RT_VALIGN_TOP))
+			res.extend((channelnumberServicename, eventName, pixmap , picon, percent, self.serviceEventProgressbarColor, self.serviceEventProgressbarColorSelected, self.serviceEventProgressbarBackColor, self.serviceEventProgressbarBackColorSelected, forgroundColor, forgroundColorSel, backgroundColor, backgroundColorSel, additionalInfoColor, additionalInfoColorSelected, serviceDescriptionColor, serviceDescriptionColorSelected, servicenumber_text, addtimedisplay, eventName_shortdesc, nextEventTimeName, time_remaining, time_percent, marker_text, self.picServiceEventProgressbar, eventName_fulldesc, marker_icon, nextEventName, nextEventTime, nowEventTime, primetimeEventName, primetimeEventTime, moreNextEvents, primetimeEvents, self.stylePrimeTimeHeading, channelnumberServicename, picInBouquet, providerName, providerPicon, eventImage, serviceNameEventName, 750, RT_VALIGN_TOP))
 			
-			#1 = serviceName 						# text=1
+			#1 = serviceName 						# text=1 (with channelnummer by setup-option)
 			#2 = eventName							# text=2
 			#3 = FolderPic							# png=3
 			#4 = Picon 								# png=4
@@ -1407,7 +1494,7 @@ class ServiceListOwn(ServiceList,TemplatedMultiContentComponent):
 			#33 = moreNextEventsList_text			# text=33 like EventList-Converter
 			#34 = primetimeEventList_text			# text=34 like EventList-Converter
 			#35 = primetimeHeading_text				# text=35 (primetime or primetime next day)
-			#36 = channelnumberServicename_text		# text=36
+			#36 = channelnumberServicename_text		# text=36 (with channelnummer by setup-option)
 			#37 = picInBouquet (only merlin)		# png=37 (for merlin tag bouquetServices)
 			#38 = providerName_text					# text=38 (show the providername of the service)
 			#39 = providerPicon						# png=39 (in subfolder 'PiconProvider' in picon-folder)
@@ -1416,13 +1503,13 @@ class ServiceListOwn(ServiceList,TemplatedMultiContentComponent):
 			#42 = width								# test-value
 			#43 = valign							# test-value
 			
-			#print("=== ProviderName, ProviderPicon", providerName, providerPicon)
-			#print("=== res", res)
+			#print("[CSP] ProviderName, ProviderPicon", providerName, providerPicon)
+			#print("[CSP] res", res)
 			return res # exit if use template-style
 		
 		
 		#following only if not use template-style
-		#print("=== create entry without template")
+		#print("[CSP] create entry without template")
 		
 		# pic for marker, folder, servicegroup or dvb_pic
 		if pixmap is not None:
@@ -1434,7 +1521,8 @@ class ServiceListOwn(ServiceList,TemplatedMultiContentComponent):
 			xoffset += pix_width + self._componentSizes.get(self.KEY_PICON_OFFSET, 8)
 		
 		#for Merlin
-		elif isMerlin and config.usage.configselection_showdvbicons.value:
+		#elif isMerlin and config.usage.configselection_showdvbicons.value:
+		elif config.usage.configselection_showdvbicons.value:
 			# this is a hack. We assume as in the above function that the marker pic is always available
 			pixmap_size = self.picMarker.size()
 			pix_width = pixmap_size.width()
@@ -1647,7 +1735,7 @@ class ServiceListOwn(ServiceList,TemplatedMultiContentComponent):
 							res.append((eListboxPythonMultiContent.TYPE_TEXT, xoffset, top, awidth, self.serviceInfoHeight, 0, RT_HALIGN_LEFT|RT_VALIGN_CENTER, text, additionalInfoColor, additionalInfoColorSelected, backgroundColor, backgroundColorSel))
 				else:
 					# add eventname in next column (if not use the second line)
-					#print "=== showPrimeTime, timertyp, EventName", self.showPrimeTime, timertyp, self.getEventNameFromEvent(event)
+					#print "[CSP] showPrimeTime, timertyp, EventName", self.showPrimeTime, timertyp, self.getEventNameFromEvent(event)
 					if self.showPrimeTime and timertyp != 0:
 						res.extend((
 							(eListboxPythonMultiContent.TYPE_PIXMAP_ALPHABLEND, xoffset, height/2-iconWidth/2, iconWidth, iconWidth, timerpng), 
@@ -1769,7 +1857,7 @@ class ServiceListOwn(ServiceList,TemplatedMultiContentComponent):
 						xoffset += nameWidth 
 				# servicename
 				res.append((eListboxPythonMultiContent.TYPE_TEXT, xoffset, 0, width - xoffset , sheight, 2, RT_HALIGN_LEFT|RT_VALIGN_CENTER, serviceName, forgroundColor, forgroundColorSel, backgroundColor, backgroundColorSel))
-		#print("=== res", res)
+		#print("[CSP] res", res)
 		return res
 
 	def downloadEventImageCallback(self, index, eventId, retValue, eventImageName):
@@ -1821,12 +1909,12 @@ class ServiceListOwn(ServiceList,TemplatedMultiContentComponent):
 
 	def getCalculatedTextByWidth(self, text, textWidth):
 		calcwidth = self._calcTextWidth(text)
-		#print ("=== width1", calcwidth, textWidth, text)
+		#print ("[CSP] width1", calcwidth, textWidth, text)
 		while calcwidth > textWidth:
 			text1 = unicode(text, 'utf-8')[:-2].encode('utf-8')
-			#print("=== text", calcwidth, text)
+			#print("[CSP] text", calcwidth, text)
 			calcwidth1 = self._calcTextWidth(text1)
-			#print ("=== width2", calcwidth1, text)
+			#print ("[CSP] width2", calcwidth1, text)
 			if calcwidth1 < textWidth:
 				text2 = unicode(text, 'utf-8')[:-1].encode('utf-8')
 				calcwidth2 = self._calcTextWidth(text2)
@@ -1842,7 +1930,7 @@ class ServiceListOwn(ServiceList,TemplatedMultiContentComponent):
 		return text.rstrip()
 	
 	def applySkin(self, desktop, parent):
-		#Log.i("===")
+		#Log.i("[CSP]")
 		for (attrib, value) in self.skinAttributes:
 			if attrib == "serviceNumberFont":
 				self.serviceNumberFont = parseFont(value, ((1,1),(1,1)))
@@ -1882,6 +1970,8 @@ class ServiceListOwn(ServiceList,TemplatedMultiContentComponent):
 
 	def preWidgetRemove(self, instance):
 		config.usage.configselection_showeventnameunderservicename.removeNotifier(self.setItemHeight)
+		if not isMerlin:
+			config.usage.configselection_showdvbicons.removeNotifier(self.setDVBIcons)
 		ServiceList.preWidgetRemove(self, instance)
 
 def replaceChannelSelection(session, **kwargs):
