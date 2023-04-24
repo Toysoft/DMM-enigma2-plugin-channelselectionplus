@@ -1,5 +1,17 @@
 # Changelog ChannelSelection Plus
 
+#### 23.04.2023 - Version 0.1.0-r8:
+- fix: bei Senderwechsel in der Kanalliste bei aktivem PiPzap erfolgt der Senderwechsel nun korrekt im PiP
+
+#### 14.04.2023 - Version 0.1.0-r7:
+- Kanalnummernanzeige für Ordner deaktiviert (z.B. in der Satelliten-, Anbieter- und Favoritenliste)
+
+#### 01.04.2023 - Version 0.1.0-r6:
+- bei Template-Ansichtwechsel per Spultasten wird die letzte Ansicht nun dauerhaft gespeichert
+- neuer Template-Parameter "maxExtDesc" zur Begrenzung der Zeichenanzahl bei Nutzung von text=26 in den Templates(für bessere Navigations-Performance in der Kanalliste bei langen extDesc-Texten)
+- Unterstützung für svg's als ServiceType-Icons im Skinpfad
+- verbesserte Navigations-Performance, wenn im aktuellen Template keine EventImages verwendet werden (wenn im Template png=40 nicht verwendet wird)
+
 #### 17.10.2022 - Version 0.1.0-r4:
 - fix für fehlerhafte Anzeige nach Ansichtwechsel im ValisEPG
 - Kanalnummern-Anzeige-Setup-Option greift jetzt auch bei den Template-Kanalnamen-Texten (text=1, text=36, text=41)

@@ -38,7 +38,7 @@ except:
 
 sz_w = getDesktop(0).size().width()
 
-VERSION = "0.1.0-r4"
+VERSION = "0.1.0-r8"
 
 #language-support
 lang = language.getLanguage()
@@ -168,7 +168,7 @@ def ChannelSelectionBase__init__(self, session):
 		ChannelSelectionBase_ori(self, session)
 
 		#don't use Templates in SimpleChannelSelection or Radio-Screens, which use ChannelSelectionBase
-		if self.__class__.__name__ in ("ChannelSelection", "ValisEPG", "CSP_ChannelSelectionPreview", "CSP_ValisEPGPreview"):
+		if self.__class__.__name__ in ("ChannelSelection", "ValisEPG", "CSP_ChannelSelectionPreview", "CSP_ValisEPGPreview"): #, "ChannelSelectionRadio"
 			self["list"] = ServiceListOwn(session)
 			self.servicelist = self["list"]
 			self["template_channelbase_action"] = HelpableActionMap(self, "MediaPlayerSeekActions",
@@ -227,6 +227,7 @@ def ChannelSelectionBase_handleKey(self, KEY_VALUE):
 	config.usage.configselection_style.handleKey(KEY_VALUE)
 	self.servicelist.setServiceListTemplate(self.servicelist.root)
 	self.servicelist.setList(self.servicelist._list)
+	config.usage.configselection_style.save()
 
 def ChannelSelectionBase_createConfigSelection_style(self):
 	#print("[CSP] ChannelSelectionBase_createConfigSelection_style")
@@ -302,6 +303,10 @@ def ChannelSelection_channelSelected(self):
 	
 	OFF = 0
 	EDIT_ALTERNATIVES = 2
+
+	#for pipzap
+	if hasattr(self, "dopipzap") and self.dopipzap:
+		self.enable_pipzap = True
 
 	ref = self.getCurrentSelection()
 	if self.movemode:
@@ -866,7 +871,9 @@ class ServiceListOwn(ServiceList,TemplatedMultiContentComponent):
 		self.styleScrollbarMode = eListbox.showOnDemand
 		self.styleMoreNextEvents = 0
 		self.stylePrimetimeEvents = 0
+		self.styleMaxExtDesc = None
 		self.stylePrimeTimeHeading = None
+		self.styleUseEventimage = False
 		self.picServiceEventProgressbarPath = None
 		
 		#save org fonts to use in default style
@@ -945,6 +952,16 @@ class ServiceListOwn(ServiceList,TemplatedMultiContentComponent):
 		#set own template-Values from template
 		templates = self.template.get("templates")
 		#print("[CSP] templates", len(templates[template]), template, templates)
+
+		#check for need to load eventimages
+		self.styleUseEventImage = False
+		pos1 = self._template.find('"%s":' % template)
+		if pos1 > 0:
+			pos2 = self._template.find("]", pos1)
+			if pos2 > 0 and "png=40" in self._template[pos1:pos2]:
+				self.styleUseEventImage = True
+		print("[CSP] use EventImage: %s" % self.styleUseEventImage)
+
 		if template != "default":
 			self.initContent() #set Templatefonts
 			if len(templates[template]) > 4: #use template-options
@@ -987,6 +1004,7 @@ class ServiceListOwn(ServiceList,TemplatedMultiContentComponent):
 			
 			self.styleMoreNextEvents = tpl.get("moreNextEvents", 0)
 			self.stylePrimetimeEvents = tpl.get("primetimeEvents", 0)
+			self.styleMaxExtDesc = tpl.get("maxExtDesc", None)
 		else:
 			itemWidth = self.itemWidth
 			self.styleModeTemplate = self.styleMode
@@ -999,6 +1017,7 @@ class ServiceListOwn(ServiceList,TemplatedMultiContentComponent):
 			scrollbarMode = self.styleScrollbarMode
 			self.styleMoreNextEvents = 0
 			self.stylePrimetimeEvents = 0
+			self.styleMaxExtDesc = None
 			self.setItemHeight()
 			
 			#set ProgressBarPixmap if exist in the skin
@@ -1068,16 +1087,22 @@ class ServiceListOwn(ServiceList,TemplatedMultiContentComponent):
 	def setDVBIcons(self, ConfigElement=None):
 		if (config.usage.configselection_showdvbicons.value and (config.usage.configselection_style.value == "default" or not self.useTemplates)) or (config.usage.configselection_style.value != "default" and self.useTemplates):
 			print("[CSP] set DVBIcons on - style: %s, useTemplate: %s, config: %s" % (config.usage.configselection_style.value, self.useTemplates, config.usage.configselection_showdvbicons.value))
-			self.picDVB_S = LoadPixmap(resolveFilename(SCOPE_CURRENT_SKIN, "ico_dvb_s-fs8.png"))
-			self.picDVB_C = LoadPixmap(resolveFilename(SCOPE_CURRENT_SKIN, "ico_dvb_c-fs8.png"))
-			self.picDVB_T = LoadPixmap(resolveFilename(SCOPE_CURRENT_SKIN, "ico_dvb_t-fs8.png"))
-			self.picStreaming = LoadPixmap(resolveFilename(SCOPE_CURRENT_SKIN, "ico_streaming-fs8.png"))
+			self.picDVB_S = self.loadServiceTypeIcon("ico_dvb_s-fs8")
+			self.picDVB_C = self.loadServiceTypeIcon("ico_dvb_c-fs8")
+			self.picDVB_T = self.loadServiceTypeIcon("ico_dvb_t-fs8")
+			self.picStreaming = self.loadServiceTypeIcon("ico_streaming-fs8")
 		else:
 			print("[CSP] set DVBIcons off - style: %s, useTemplate: %s, config: %s" % (config.usage.configselection_style.value, self.useTemplates, config.usage.configselection_showdvbicons.value))
 			self.picDVB_S = None
 			self.picDVB_C = None
 			self.picDVB_T = None
 			self.picStreaming = None
+
+	def loadServiceTypeIcon(self, filename):
+		if fileExists(resolveFilename(SCOPE_CURRENT_SKIN, filename + ".png")):
+			return LoadPixmap(resolveFilename(SCOPE_CURRENT_SKIN, filename + ".png"))
+		else:
+			return LoadPixmap(resolveFilename(SCOPE_CURRENT_SKIN, filename + ".svg"))
 
 	def _buildOptionEntryProgressBar(self, event, xoffset, width, height):
 		#Log.i("[CSP]")
@@ -1159,7 +1184,11 @@ class ServiceListOwn(ServiceList,TemplatedMultiContentComponent):
 	def getCleanExtDescription(self, event):
 			name = event.getEventName().strip(" ").strip("\n").strip("\xc2\x8a")
 			desc = event.getShortDescription().strip(" ").strip("\n").strip("\xc2\x8a") #.replace("\n"," - ")
-			ext = event.getExtendedDescription().lstrip(" ").lstrip("\n").lstrip("\xc2\x8a").replace("\n"," ").replace("\xc2\x8a\xc2\x8a","\n")
+			if self.styleMaxExtDesc:
+				#use not full text for better navigation performance in channellist
+				ext = event.getExtendedDescription().lstrip(" ")[:int(self.styleMaxExtDesc)].lstrip("\n").lstrip("\xc2\x8a").replace("\n"," ").replace("\xc2\x8a\xc2\x8a","\n")
+			else:
+				ext = event.getExtendedDescription().lstrip(" ").lstrip("\n").lstrip("\xc2\x8a").replace("\n"," ").replace("\xc2\x8a\xc2\x8a","\n")
 			if desc and desc != event.getEventName():
 				desc_list = desc.split("\n")
 				if desc_list[0] == name:
@@ -1187,7 +1216,7 @@ class ServiceListOwn(ServiceList,TemplatedMultiContentComponent):
 		return provider
 	
 	def buildOptionEntry(self, service, **args):
-		#Log.i("[CSP]")
+		Log.i()
 		width = self.l.getItemSize().width()
 		width -= self._componentSizes.get(self.KEY_END_MARGIN, 5)
 		height = self.l.getItemSize().height()
@@ -1281,7 +1310,7 @@ class ServiceListOwn(ServiceList,TemplatedMultiContentComponent):
 			markers_before = self.l.getNumMarkersBeforeCurrent()
 			servicenumberformat = config.usage.configselection_listnumberformat.value
 			servicenumber_text = servicenumberformat % (self.numberoffset + index + 1 - markers_before)
-			if config.usage.configselection_showlistnumbers.value:
+			if config.usage.configselection_showlistnumbers.value and isPlayable:
 				channelnumberServicename = servicenumber_text + " " + serviceName
 			else:
 				channelnumberServicename = serviceName
@@ -1319,7 +1348,7 @@ class ServiceListOwn(ServiceList,TemplatedMultiContentComponent):
 				nowEventTime = "%02d:%02d - %02d:%02d" % (beginTime[3],beginTime[4],endTime[3],endTime[4])
 				
 				# load EventImages if EventDataManager is installed
-				if EventDataManager_installed:
+				if EventDataManager_installed and self.styleUseEventImage:
 					#try to load Eventimage
 					eventId = "%s_%s" % (event.getEventId(), serviceName)
 					#print("[CSP] before check downloadEventImage", eventId, event.getEventName(), serviceName)
@@ -1454,7 +1483,7 @@ class ServiceListOwn(ServiceList,TemplatedMultiContentComponent):
 				if not eventName_fulldesc:
 					eventName_fulldesc = _("no event data")
 				
-				if not eventImage:
+				if not eventImage and self.styleUseEventImage:
 					eventImage = picon
 			
 			res.extend((channelnumberServicename, eventName, pixmap , picon, percent, self.serviceEventProgressbarColor, self.serviceEventProgressbarColorSelected, self.serviceEventProgressbarBackColor, self.serviceEventProgressbarBackColorSelected, forgroundColor, forgroundColorSel, backgroundColor, backgroundColorSel, additionalInfoColor, additionalInfoColorSelected, serviceDescriptionColor, serviceDescriptionColorSelected, servicenumber_text, addtimedisplay, eventName_shortdesc, nextEventTimeName, time_remaining, time_percent, marker_text, self.picServiceEventProgressbar, eventName_fulldesc, marker_icon, nextEventName, nextEventTime, nowEventTime, primetimeEventName, primetimeEventTime, moreNextEvents, primetimeEvents, self.stylePrimeTimeHeading, channelnumberServicename, picInBouquet, providerName, providerPicon, eventImage, serviceNameEventName, 750, RT_VALIGN_TOP))
@@ -2098,7 +2127,7 @@ class CSP_ChannelSelectionPreview(ChannelSelection):
 """
 # Hinweise zur den Template-Optionen am Ende eines Templates
 """
-],True,None,{"mode": 1,"itemWidth": 840,"ProgressbarPixmapSize": (665,3),"bgPixmap": "skinpath/image_name.svg","selPixmap": "skinpath/image_name.svg", "pixmapSize": (316,300), "moreNextEvents":(5,250), "primetimeEvents":(1,0)})
+],True,None,{"mode": 1,"itemWidth": 840,"ProgressbarPixmapSize": (665,3),"bgPixmap": "skinpath/image_name.svg","selPixmap": "skinpath/image_name.svg", "pixmapSize": (316,300), "moreNextEvents":(5,250), "primetimeEvents":(1,0), "maxExtDesc": 150})
 1. Wert: True = SelectionEnabled
 2. Wert: None = ScrollbarMode
 3. Wert: dict zur direkten Übergabe von Skin-Options für die Kanalliste:
@@ -2112,6 +2141,8 @@ class CSP_ChannelSelectionPreview(ChannelSelection):
   (bei bgPixmap und selPixmap wird dann anstelle des Pfadnamens der Attribute-Name der Bilder aus dem list-Widget angegeben)
 * moreNextEvents = Anzahl der nächstens Events als Text (je Zeile 1 Event) - Anzeige über text=33
 * primetimeEvents = Anzahl der nächstens Events als Text (je Zeile 1 Event) - Anzeige über text=34
+* maxExtDesc = Anzahl der Zeichen zur Anzeige der extDesc, default = None
+ (die Begrenzung auf einen bestimmten Wert kann die Navigations-Performance in der Kanalliste verbessern)
 """
 #=== end of template-example ==============
 
